@@ -28,6 +28,8 @@ class wq_batcher(object):
         :return:
         '''
         self.index += 1
+        if self.index >= self._data_size:
+            self.index = -1
         return self._wq_data[self.index]
 
 

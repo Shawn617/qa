@@ -241,6 +241,15 @@ class loader(object):
         torch.save(vec, "glove/glove_vec")
         return vocab, vec
 
+def get_max_lengthOfAllRelations():
+    max = 0
+    with open("wq/wq_relations/relations.txt") as file:
+        for line in file:
+            splited = line.split(".")
+            if len(splited) > max:
+                max = len(splited)
+    print max
+
 
 # """test"""
 # loader = loader()
