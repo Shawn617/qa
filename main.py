@@ -32,7 +32,7 @@ optparser.add_option(
     type='int', help="batch_size"
 )
 optparser.add_option(
-    "-g", "--use_cuda", default="0",
+    "-g", "--use_cuda", default="1",
     type='int', help="whether use gpu"
 )
 optparser.add_option(
@@ -96,15 +96,14 @@ def start_train(model, opts, wq_data_file):
     model.train()
 
     for step in range(opts.iter):
-        print '\n' + 'Epoch {} /{}'.format(step, opts.iter)
+        print '\n' + 'Epoch {} / {}'.format(step, opts.iter)
         print '-' * 10
 
-        # loss = 0
-        # delete cuda for local debug
+        '''read next batch'''
         data = wq_batcher.next()
 
         '''choose the max cos similarity of positive relation and negative relation'''
-        pr_max, nr_max = choose_highest_pr_nr(data, model, hidden, target, cos_dist, MRL, opts, wq_batcher)
+        pr_max, nr_max = choose_highest_pr_nr(data, model, hidden, cos_dist, opts, wq_batcher)
 
         '''loss'''
         loss = MRL(pr_max, nr_max, target)
@@ -120,6 +119,10 @@ def start_train(model, opts, wq_data_file):
     torch.save(model.state_dict(), 'checkpoint.pkl')
 
     """evaluate"""
+    evaluate(model, hidden, opts, wq_batcher, cos_dist)
+
+
+def evaluate(model, hidden, opts, wq_batcher, cos_dist):
     model.eval()
     test_data = np.load("wq/wq_test_data.npy")
     total = 0
@@ -131,19 +134,23 @@ def start_train(model, opts, wq_data_file):
         q = np.reshape(q, (opts.batch_size, -1))
         q_tensor = Variable(torch.LongTensor(q)).cuda()
         # print "q_tensor size: ", q_tensor.size()
-        y_q, h_q = model(q_tensor, hidden)
-        h_q = h_q[0] + h_q[1]
+        h_q = model(q_tensor, hidden)
+
         # print "***after add h_q size: ", h_q.size()
         relations = pr + nr
         for j in range(len(relations) / opts.batch_size):
             r = relations[j * opts.batch_size: (j + 1) * opts.batch_size]
             while len(r) != opts.batch_size:
                 r.append([0])
-            r = wq_batcher.padding(r)
+            try:
+                r = wq_batcher.padding(r)
+            except ValueError:
+                print ValueError
+                continue
             r_tensor = Variable(torch.LongTensor(r)).cuda()  # positive relation
             # print "relation_tensor size: ", r_tensor.size()
-            y_r, h_r = model(r_tensor, hidden)
-            h_r = h_r[0] + h_r[1]
+            h_r = model(r_tensor, hidden)
+
             tmp = cos_dist(h_q, h_r)
             res.append(tmp)
         res = torch.cat((res))
@@ -154,35 +161,33 @@ def start_train(model, opts, wq_data_file):
             total += 1
         if i == 0:
             continue
-        print "-------------Correct Prediction: {} / {}".format(total, i), "   Accumulate Accuracy: ", float(total/float(i))
+        print "-------------Correct Prediction: {} / {}".format(total, i), "   Accumulate Accuracy: ", float(
+            total / float(i))
 
 
-def choose_highest_pr_nr(data, model, hidden, target, cos_dist, MRL, opts, wq_batcher):
+def choose_highest_pr_nr(data, model, hidden, cos_dist, opts, wq_batcher):
     q, pr, nr = data[0], data[1], data[2]
+    pr_cos, nr_cos = [], []
 
     '''question'''
     q = q * opts.batch_size
     q = np.reshape(q, (opts.batch_size, -1))
     q_tensor = Variable(torch.LongTensor(q)).cuda()
+    h_q = model(q_tensor, q_tensor, hidden)
 
-    pr = pr[0]
-    pr = pr * opts.batch_size
-    pr = np.reshape(pr, (opts.batch_size, -1))
-    pr_tensor = Variable(torch.LongTensor(pr)).cuda()
-    h_q = model(q_tensor, pr_tensor, hidden)
-
-    # y_q, h_q = model(q_tensor, pr_tensor, hidden)
-    h_q = h_q[0] + h_q[1]
-    pr_cos, nr_cos = [], []
-    for j in range(len(pr) / opts.batch_size + 1):
+    for j in xrange(len(pr) / opts.batch_size + 1):
         r = pr[j * opts.batch_size: (j + 1) * opts.batch_size]
-        while len(r) != opts.batch_size:
+        while len(r) < opts.batch_size:
             r.append([0])
-        r = wq_batcher.padding(r)
+        try:
+            r = wq_batcher.padding(r)
+        except ValueError:
+            print ValueError
+            continue
         pr_tensor = Variable(torch.LongTensor(r)).cuda()  # positive relation
         # print "relation_tensor size: ", r_tensor.size()
-        y_r, h_pr = model(q_tensor, pr_tensor, hidden)
-        h_pr = h_pr[0] + h_pr[1]
+        h_pr = model(q_tensor, pr_tensor, hidden)
+
         cos = cos_dist(h_q, h_pr)
         pr_cos.append(cos)
 
@@ -191,26 +196,31 @@ def choose_highest_pr_nr(data, model, hidden, target, cos_dist, MRL, opts, wq_ba
 
     for j in range(len(nr) / opts.batch_size + 1):
         r = nr[j * opts.batch_size: (j + 1) * opts.batch_size]
-        while len(r) != opts.batch_size:
+        while len(r) < opts.batch_size:
             r.append([0])
-        r = wq_batcher.padding(r)
+        try:
+            r = wq_batcher.padding(r)
+        except ValueError:
+            print ValueError
+            continue
         nr_tensor = Variable(torch.LongTensor(r)).cuda()  # positive relation
         # print "relation_tensor size: ", r_tensor.size()
-        y_r, h_nr = model(q_tensor, nr_tensor, hidden)
-        h_nr = h_nr[0] + h_nr[1]
+        h_nr = model(q_tensor, nr_tensor, hidden)
+
         cos = cos_dist(h_q, h_nr)
         nr_cos.append(cos)
 
     nr_cos = torch.cat((nr_cos))
     nr_max, nr_maxindex = torch.max(nr_cos, 0)
 
+    return pr_max, nr_max
 
 def main():
     # Read parameters from command line
     (opts, args) = optparser.parse_args()
 
     if not torch.cuda.is_available():
-        opts.use_cuda = 0
+        opts.use_cuda = 1
     torch.manual_seed(opts.seed)
     np.random.seed(opts.seed)
 
