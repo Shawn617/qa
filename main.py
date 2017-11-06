@@ -60,8 +60,8 @@ optparser.add_option(
     type='float', help="weight decay"
 )
 optparser.add_option(
-    "-m", "--margin", default="16",
-    type='int', help="margin of ranking loss"
+    "-m", "--margin", default="0.5",
+    type='float', help="margin of ranking loss"
 )
 
 
@@ -106,6 +106,7 @@ def start_train(model, opts, wq_data_file):
         pr_max, nr_max = choose_highest_pr_nr(data, model, hidden, cos_dist, opts, wq_batcher)
 
         '''loss'''
+        # loss(x, y) = max(0, -y * (x1 - x2) + margin)
         loss = MRL(pr_max, nr_max, target)
 
         opt.zero_grad()

@@ -23,10 +23,7 @@ class BIGRU(nn.Module):
         self._opts = opts
         self._batch_size = self._opts.batch_size
         self.max_length = 15
-        # loader = data.loader()
-        # self.vocab = loader.load_pickle("glove/smaller_glove_vocab.pickle")
         self.vec = torch.load("glove/smaller_glove_vec")
-
         self.word_embeddings = nn.Embedding(self._opts.vocab_size, self._opts.emb_size)
         self.word_embeddings.weight = nn.Parameter(self.vec)
 
@@ -48,7 +45,7 @@ class BIGRU(nn.Module):
         """
         Forward pass
         """
-        question_representation= []
+        question_representation = []
         question = self.word_embeddings(question)
         relation = self.word_embeddings(relation)
         # quesion: batch(4) * length * 300
